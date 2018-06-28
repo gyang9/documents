@@ -1,0 +1,389 @@
+************************************************
+*****     HYBRID PI0 SAMPLE GENERATION     *****
+************************************************
+
+---------------------------------------------------------------
+
+Scheme of the construction :
+----------------------------
+
+Each step of the construction is done in a single repository. Following steps have to be done
+sequentially :
+
+Step 1 : Extract single ring e-like events from atmospheric data and MC (corresponding folder
+       	 01atmnu)
+
+Step 2 : Select single ring e-like events from stopping muons data and generate associated 
+       	 MC events. These events will be used to replace gamma with momentum < 60 MeV/c 
+	 (folder 02dcye)
+
+Step 3 : Extraction of pi0 events and associated kinematic from T2K MC (folder 03pi0vec)
+
+Step 4 : Matching of the first (resp. second) gamma from the T2K pi0 MC with single ring 
+       	 e-like events from data or MC to produce primary (resp. secondary) hybrid-pi0 samples
+	 (folder 04matching)
+
+Step 5 : Generate the second (resp. first) MC gamma ring corresponding of the primary (resp. 
+       	 secondary) hybrid-pi0 events and merging of electron ring (from data or MC) with
+	 gamma MC rings (folder 05merge) 
+
+Step 6 : Apply reconstruction algorithm (APfit and fiTQun) on produced hybrid-pi0 events
+       	 and production of .hbk and .root ntuple files (folder 06apfit)
+
+---------------------------------------------------------------
+
+For the purpose of this document, both output folder of hybrid-pi0 files and working directory are
+set on /disk. Usually it's better to have the working directory on your /home folder 
+
+Output folder : /disk/usr3/tmueller/hybrid_code/
+
+Run the shell script mkdir.sh in this folder creates 11 folders :
+atmnu_data, atmnu_mc, dcye_data, dcye_mc, primary_data, primary_mc,
+secondary_data, secondary_data_dcye, secondary_mc, secondary_mc_dcye, true_pi0
+
+The 4 first folders are the input data and MC needed to construct the hybrid-pi0 samples.
+The "true_pi0" directory is used to generate pure pi0 events (not hybrid) for further studies
+The 6 others are the hybrid-pi0 samples themselves.
+
+---------------------------------------------------------------
+
+Working directory : /disk/usr3/tmueller/hybrid_code/work
+(this directory has to be created by hand)
+
+Configure shell script config.sh in this folder :
+  - SKDETSIM -> path to the skdetsim executable file
+  - top_data_dir -> output folder
+  - FILLNT -> for hybrid-pi0 use /disk/usr3/tmueller/hybrid_code/official_ntuple/fillnt_simple.sh
+  this version handles the "fake" variables needed for hybrid
+  - H2ROOT -> /usr/local/sklib_g77/skofl_12a/bin/h2root
+
+---------------------------------------------------------------
+
+01atmnu (time needed ~ 1 hour)
+
+********************************************************
+* This first step is dedicated to extract single ring e-like events from atmospheric data / MC.
+* As a preliminary step, user has to find where latest atmospheric data / MC root files are located
+********************************************************
+
+- Make event list of 1-R e-like event from atmnu data / MC sample :
+
+       for data : root -l -q -b elike.C+\(1\)
+       for MC   : root -l -q -b elike.C+\(0\)
+  
+  it creates 'elike-data.list' and 'elike-mc.list' in the format "nrun nsub nev"
+
+  Need to modify the path to define which data / MC are used in source code "elike.C"
+    
+  Currently :
+    for data => /disk/atmpd4/sk4_dst/mar13/fc_dst/ntuple/apfit_run0*.root
+    for MC   => /disk/atmpd4/sk4_dst/mar13/fc_mc/ntuple/feb13sk4_MassProd.reduc.20*.root
+    
+  The selection citeria : are agood>0.6, nhitac<16, evis>30, nring=1, ip[0]=2 and nmue=0
+  with the current defined input files, total number of selected data is 3730 events and 9123
+  events for the MC
+    
+- Equalize MC to total number of data by running shell script equal_mc.sh
+  it creates elike-lmc.list (reduced) and elike-mc.list.org (original)
+  
+- Extract e-like events from original zbs file both data and MC by using shell script skdump.sh 
+  it fills folders atmnu_data and atmnu_mc in 'top_data_dir'
+  Due to a new labelling of the events, elike-mc.list.org has to be broken into subfiles containing
+  the events associated to each ZBS file (currently 5 subfiles)
+    
+---------------------------------------------------------------
+  
+02dcye (time needed ~ 2 days)
+
+********************************************************
+* In this step, the goal is to select single ring e-like events from stopping muons data and to 
+* generate associated MC events. These events will be used to replace gamma with momentum < 60 MeV/c
+* !!! NB : This part is the most time consuming in terms of personal work due to many sub steps 
+* (and probably the most difficult one) !!!
+********************************************************
+
+- Creates a "PATMUE" directory in the top data dir and a PATMUE/stopmu directory
+
+- In the working folder 02dcye, create a symbolic link to the PATMUE directory
+
+- Run the script gather_file.sh which selects and copies 1 over 7 files from decay stopping muons 
+  data (/disk/atmpd4/skdump) and copy them into PATMUE. This copy is needed to ensure data are taken
+  uniformely over whole SK-IV period and with enough statistics
+
+- Generate runlist.txt (needed to run further scripts) using bash command :
+
+  	   ls PATMUE/patmue.run* | sed 's/PATMUE\/patmue.run//' > runlist.txt
+
+- Create "shell" directory : mkdir shell
+
+- Run make_shell_stmured.sh to create the scripts needed to apply "stmured" on the PATMUE file
+  and fill PATMUE/stopmu repository
+
+- Run submit.sh (!!!!be carefull to correctly edit file!!!!) to submit jobs to the queue
+
+- Create a "forLIST" directory in PATMUE/stopmu and a symbolic link in 02dcye
+
+- Create the file stopmu.list using bash command :
+
+  	 ls PATMUE/stopmu/stopmu.0*.zbs | 'sed s/PATMUE\/stopmu\///' > stopmu.list
+
+- Run all the fillnt-***.sh to apply fillnt on the ZBS files. This breaking is needed in order 
+  to ensure that the size of the produced hbk files doesn't exceed the size limit
+
+- Copy ana.inc and mklist.kumac into the forLIST directory and run mklist.kumac in paw :
+
+       paw
+       exec mklist.kumac
+
+  to extract single ring e-like events. This creates the output dcye_list.txt that needs to be 
+  copied in 02dcye folder
+
+- Fish events of decay electron from "dcye_list.txt" using 01select.sh
+  This creates zbs, hbk and root file folder dcye_data in top_data_dir
+  
+- After whole processes finished, don't forget to :
+
+  	hadd dcye-data-dst.root dcye-data-dst.*.root
+	create symbolic link of dcye-data-dst.root in the 02dcye directory
+
+- Make vector zbs file for decay electron MC and run SKDETSIM using shell script 02dcyemc.sh
+  Due to new system (DISK -> LOCAL) need to create a symbolic link in 02dcye folder pointing
+  on top_data_dir/dcye_mc. The binary file mkvector needs to be created beforehand using the
+  GNUmakefile
+
+- Run all the created scripts produced and located in shell_mc repository. User can use the 
+  script submit_mc.sh but needs to carefully edit it
+
+- The muegamma repository contain a GEANT4 simulation of mu -> e gamma nu nu which will be used 
+  to replace 1.4% of the events; Copy the file dcyeg_vector.txt in 02dcye and run the script
+  02b_dcyemc which produce scripts files to generate MC events in shell_mc_eg folder.
+  User can use the script submit_mc.sh [carefully edit it]
+
+- In the fit_mc repository, run the script make_lowefit_shell.sh to produce the scripts needed to
+  apply reconstruction on the MC. Use submit.sh to submit jobs to the queue.
+
+- After all reconstruction porocesses finished, don't forget to :
+
+  	hadd dcye_mc/dcye-mc-dst-fit.root dcye_mc/decay-e.mc.00*.root
+  	hadd dcye_mc/dcye-mc-eg-dst-fit.root dcye_mc/decay-e.mc.05*.root
+
+  and to create corresponding symbolic link in 02dcye repository
+
+---------------------------------------------------------------
+
+03pi0vector (time needed ~ 30 min)
+
+********************************************************
+* In this step, all events containing a single pi0 are extracted from T2K MC
+********************************************************
+
+- The user need to specify the location of th T2K MC in vecdump_proxyprocess.C
+  (search for "filepath" using your favourite text editor)
+
+- Run the code using :
+
+    root -l -q -b vecdump_proxyprocess.C+
+
+- The output is a text file named pi0vector.txt with the following format :
+
+> 999999 0 23  41 4613.1                       // run, subrun, event, mode, Enu
+> -80.5252 -638.021 -668.308                   // vertex(3)
+> 303.994                                      // pi0 momentum
+> 268.578 0.652962 -0.747037 0.124809          // higher gamma energy and direction(3)
+> 64.0338 -0.24232 -0.735736 0.632434          // lower  gamma energy and direction(3)
+> 247.838 268.502 63.8316 134.976              // random conversion length, electron-corresponding energy(2), pi0mass (for check)
+
+- Don't worry about the error message at the end :
+# Error: Symbol htemp is not defined in current scope  vecdump_proxyprocess.C:53:
+# Error: Failed to evaluate htemp->Delete()
+# *** Interpreter error recovered ***
+
+----------------------------------------------------------------
+
+04matching (time needed ~ 1 hour)
+
+********************************************************
+* In this step the first (resp. second) gamma from the T2K pi0 MC are matched with single ring 
+* e-like events from data or MC to produce primary (resp. secondary) hybrid-pi0 samples
+********************************************************
+
+- Process the matching of data fake-event :
+
+  	  root -l -q -b matching.C+\(1\)
+
+- Code creates the 4 output files :
+       matching_primary_data.txt,
+       matching_secondary_data.txt,
+       matching_secondary_data_cye.txt,
+       matching_data.root
+   The three .txt files are needed to construct hybrid-pi0, the root file is just for basic checks
+
+- The output format is the following :
+
+> 31 336.505 5296.76                          // pi0 : modene  Ppi0  Pnu
+> -98.9732 -186.224 -98.9732                  // pi0 : x y z
+> 298.238 0.32032 0.190395 -0.927979          // pi0 : p1 dir1_x, dir1_y, dir1_z
+> 64.3281 -0.62057 -0.0184184 -0.783935       // pi0 : p2 dir2_x, dir2_y, dir2_z
+> 34.7979 298.167 64.1265                     // pi0 : dlen, emom1, emom2
+> 0 61790 17 3626885                          // electron : iseq  nrunsk nsubsk nevsk
+> 345.052 -978.774 1266.87                    // electron : x y z (fitted)
+> -0.122403 -0.026541 0.992126                // electron : dirx, diry, dirz (fitted)
+> 298.255 0                                   // electron : amome t0
+> 349.311 -977.851 1232.35                    // gamma : x y z
+> 0.651564 0.435142 0.621383                  // gamma : dirx diry dirz
+> 64.3281                                     // gamma : gmom
+> -0.00152195 -0.999704 0.024223 -0.735674    // nudir_x nudir_y nudir_z throt
+   
+- Process the matching of MC fake-event :
+
+  	  root -l -q -b matching.C+\(2\)
+
+- Code creates the 4 output files : 
+       matching_primary_data.txt,
+       matching_secondary_data.txt,
+       matching_secondary_data_cye.txt,
+       matching_mc.root
+  The three .txt files are needed to construct hybrid-pi0, the root file is just for basic checks
+
+- The output format is the same than for data.
+
+- Optionnal : to make plots of matching results run matching_plot.C by running
+
+  	    root -l -q -b matching_plot.C that creates matching_plot.ps
+  
+  (Don't forget to changes input file in matching_plot.C to handle data or MC)
+
+----------------------------------------------------------------
+
+05merge (time needed ~ 1 day)
+
+********************************************************
+* Here, we will generate the second (resp. first) MC ring corresponding of the primary (resp. 
+* secondary) hybrid-pi0 events
+********************************************************
+
+- Create 6 symbolic link pointing to :
+
+  	 /disk/usr3/tmueller/hybrid_code/primary_data
+  	 /disk/usr3/tmueller/hybrid_code/secondary_data
+  	 /disk/usr3/tmueller/hybrid_code/secondary_data_dcye
+  	 /disk/usr3/tmueller/hybrid_code/primary_mc
+  	 /disk/usr3/tmueller/hybrid_code/secondary_mc
+  	 /disk/usr3/tmueller/hybrid_code/secondary_mc_dcye
+
+- In each of these repositories, create ring1.XXX and ring2.XXX files. In bash, run the command :
+
+     for i in `seq 0 #`; do touch `printf ring1.%03d $i` ; touch `printf ring2.%03d $i`; done
+
+  while replacing # by 273 for primary samples, 181 for secondary atmospheric samples and 93 for
+  secondary dcye samples
+
+- Compile mkvector and scale_tq programs
+
+- Run mkvector program using :
+
+      ./mkvector [ -n (sample_number) ] 
+      sample_number  1 : primary fake, electron ring is from atmnu data
+                     2 : secondary fake, electron ring is from atmnu data
+                     3 : secondary fake, electron ring is from decay-e data
+                    11 : primary fake, electron ring is from atmnu MC
+                    12 : secondary fake, electron ring is from atmnu MC
+                    13 : secondary fake, electron ring is from decay-e MC
+
+   This program reads ring matching infomation applied in ../04matching and make 2 data sets:
+
+    1. ring1.XXX   : electron ring (from atmnu/decay-e)
+    2. ring2.XXX   : gamma MC vector 
+
+    Output directory is /disk/usr3/tmueller/hybrid_code/XXX, where 
+    XXXXX = primary_data, secondary_data, ...
+                        
+- Run skdetsim for ring2.XXX to produce MC gamma ring :
+
+      ./make_shell_skdetsim.sh (sample number) 
+
+  will creates all necessary shell files in the "shell" directory with the name
+  02skdetsim-YYY-ring2.XXX.sh where YYY is the sample number
+   
+  Simulation is handle using card sk4_odtune_nodark.card to remove dark noise from the 
+  simulation and prevents double counting
+   
+- Run all produced scripts using submit.sh. As usual be carefull to correctly edit the submit.sh 
+  file. After the scripts runned, the input ring2.XXX is transformed to ring2.XXX.photon
+
+- Scale the charge of the produced MC files to take into account for PMT gain variations with time
+  for the *** data samples *** only. This is done using scale_tq.sh (as this step is done 
+  interactively, comment/uncomment each step in the shell file). After this script is run 
+  ring2.XXX.photon is transformed ro ring2.XXX.photon.scaled
+  
+- Run merge program to merge electron ring with gamma ring :
+
+     ./make_shell_merge.sh (sample number = 1,2,3) for the data
+     ./make_shell_merge_mc.sh (sample number = 11,12,13) for the MC
+
+  it will creates all necessary shell files in the "shell" directory with the name
+  03merge-YYY-XXX.sh where YYY is the sample number.
+   
+- Run all produced scripts using submit.sh. As usual be carefull to correctly edit the submit.sh 
+  file. The program combines the first electron ring and second ring to create a hybrid-pi0 event
+  ring1.XXX + ring2.XXX.photon ----> comb.XXX
+      
+----------------------------------------------------------------
+
+06apfit (time needed ~ 2 days)
+
+********************************************************
+* In this step, we apply apfit and fitqun on the produced hybrid-pi0 events
+********************************************************
+
+- Create 6 symbolic link pointing to :
+
+  	 /disk/usr3/tmueller/hybrid_code/primary_data
+  	 /disk/usr3/tmueller/hybrid_code/secondary_data
+  	 /disk/usr3/tmueller/hybrid_code/secondary_data_dcye
+  	 /disk/usr3/tmueller/hybrid_code/primary_mc
+  	 /disk/usr3/tmueller/hybrid_code/secondary_mc
+  	 /disk/usr3/tmueller/hybrid_code/secondary_mc_dcye
+
+- Run make_shell_apfit.sh program
+
+      ./make_shell_apfit.sh [ -n (sample_number) ] 
+      sample_number  1 : primary fake, electron ring is from atmnu data
+                     2 : secondary fake, electron ring is from atmnu data
+                     3 : secondary fake, electron ring is from decay-e data
+                    11 : primary fake, electron ring is from atmnu MC
+                    12 : secondary fake, electron ring is from atmnu MC
+                    13 : secondary fake, electron ring is from decay-e MC
+  
+  to create all necessary script files in folder "shell" with the name
+  06apfit-YYY-XXX.sh where YYY is the sample number
+
+- Run all produced scripts using submit.sh. As usual be carefull to correctly edit the submit.sh 
+  file. After running the different scripts comb.XXX.fit files are created in relevant directories.
+  
+- Run the script FillNtuple.sh to fill ntuples comb.XXX.fit.hbk and root files using 
+  h2root comb.XXX.fit.root
+  
+  This step is the final step of hybrid-pi0 sample creation. If everything went correctly you
+  should have ZBS, HBK and ROOT files in the primary_data, primary_mc, secondary_data,
+  secondary_data_dcye, secondary_mc, secondary_mc_dcye directories
+
+- Run make_shell_fitqun.sh program
+
+      ./make_shell_fitqun.sh [ -n (sample_number) ] 
+      sample_number  1 : primary fake, electron ring is from atmnu data
+                     2 : secondary fake, electron ring is from atmnu data
+                     3 : secondary fake, electron ring is from decay-e data
+                    11 : primary fake, electron ring is from atmnu MC
+                    12 : secondary fake, electron ring is from atmnu MC
+                    13 : secondary fake, electron ring is from decay-e MC
+  
+  to create all necessary script files in folder "shell" with the name
+  07fitqun-YYY-XXX.sh where YYY is the sample number
+
+- Run all produced scripts using submit.sh. As usual be carefull to correctly edit the submit.sh 
+  file. After running the different scripts comb.XXX.fit files are created in relevant directories.
+  
+- Run the script FillNtuple_fitqun.sh to fill ntuples comb.XXX.fitqun.hbk and root files using 
+  h2root comb.XXX.fitqun.root
+
